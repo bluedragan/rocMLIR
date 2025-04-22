@@ -294,7 +294,7 @@ def getConvConfigurations(fileName):
                 
                 # Skip unsupported datatypes
                 if datatype == 'convfp8':
-                    unsupported_chips = {'gfx908', 'gfx90a', 'gfx942', 'gfx1030', 'gfx1101'}
+                    unsupported_chips = {'gfx908', 'gfx90a', 'gfx1030', 'gfx1101'}
                     if getChip() in unsupported_chips:
                         continue
 
@@ -545,20 +545,23 @@ class ConvConfiguration(PerfConfiguration):
     def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU):
         os.system("rm -f "+BENCHMARKING_METRICS_FILE_NAME)
         config = cls.fromCommandLine(commandLine, arch, numCU)
-        MIOpenDriverCommand = [MIOPENDRIVER, *commandLine, '-V', '0', '-t', '1']
-        print("Running MIOpen Benchmark: ", ' '.join(commandLine))
-        # invoke MIOpenDriver.
-        outs,errs = runPipeline([MIOpenDriverCommand])
-        if len(errs) == 0:
-            # convert bytes to str
-            outs = outs.decode('utf-8')
-            # Extract Elapsed time in ms from the output of MIOpenDriver
-            # Use regular expression to match the contents between
-            # "Elasped: " (note the space at the end) and "ms"
-            elapsedTimeInMs = ELAPSED_TIME_RE.search(outs).group(1)
-            nanoSeconds = float(elapsedTimeInMs)*1.0e6
-        else:
+        if config.dataType == 'fp8': # fp8 is currently not supported by the MIOpen driver
             nanoSeconds = np.nan
+        else:
+            MIOpenDriverCommand = [MIOPENDRIVER, *commandLine, '-V', '0', '-t', '1']
+            print("Running MIOpen Benchmark: ", ' '.join(commandLine))
+            # invoke MIOpenDriver.
+            outs,errs = runPipeline([MIOpenDriverCommand])
+            if len(errs) == 0:
+                # convert bytes to str
+                outs = outs.decode('utf-8')
+                # Extract Elapsed time in ms from the output of MIOpenDriver
+                # Use regular expression to match the contents between
+                # "Elasped: " (note the space at the end) and "ms"
+                elapsedTimeInMs = ELAPSED_TIME_RE.search(outs).group(1)
+                nanoSeconds = float(elapsedTimeInMs)*1.0e6
+            else:
+                nanoSeconds = np.nan
         return config.tableEntry(nanoSeconds)
 
 def getGemmConfigurations(fileName, dataTypes=DATA_TYPES_GEMM, outDataTypeMap=OUTPUT_DATA_TYPES_MAP):
@@ -581,7 +584,7 @@ def getGemmConfigurations(fileName, dataTypes=DATA_TYPES_GEMM, outDataTypeMap=OU
 
                 # Skip unsupported datatypes
                 if datatype == 'fp8':
-                     unsupported_chips = {'gfx908', 'gfx90a', 'gfx942', 'gfx1030', 'gfx1101'}
+                     unsupported_chips = {'gfx908', 'gfx90a', 'gfx1030', 'gfx1101'}
                      if getChip() in unsupported_chips:
                         continue
 
@@ -1702,6 +1705,8 @@ def tuneMLIRKernels(configs, arch, numCU):
         envs['MIOPEN_DEBUG_FIND_ONLY_SOLVER'] = solver_names[testVector]
         commandLine = testVector.split(sep=' ')
         config = ConvConfiguration.fromCommandLine(commandLine, arch, numCU)
+        if config.dataType == 'fp8': # fp8 is currently not supported by the MIOpen driver
+            continue;
         if config.inputLayout == 'nchw':
             MIOpenDriverCommand = [MIOPENDRIVER, *commandLine, '-V', '0']
             print(' '.join(MIOpenDriverCommand))

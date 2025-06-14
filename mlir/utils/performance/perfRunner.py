@@ -1706,7 +1706,7 @@ def tuneMLIRKernels(configs, arch, numCU):
         commandLine = testVector.split(sep=' ')
         config = ConvConfiguration.fromCommandLine(commandLine, arch, numCU)
         if config.dataType == 'fp8': # fp8 is currently not supported by the MIOpen driver
-            continue;
+            continue
         if config.inputLayout == 'nchw':
             MIOpenDriverCommand = [MIOPENDRIVER, *commandLine, '-V', '0']
             print(' '.join(MIOpenDriverCommand))

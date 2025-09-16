@@ -466,24 +466,26 @@ struct BlockwiseGemmAccelRewritePattern
     // considered a temporary hack until we have a proper way of "searching"
     // through different schedules (either heuristically or automatically)
 
-    bool directToLDS = op.getDirectToLDS();
+    bool directToLDSA = op.getDirectToLDSA();
+    bool directToLDSB = op.getDirectToLDSB();
     Value wrappedLDSBufferForLoadA, wrappedLDSBufferForLoadB;
     if (loadAFromLDS) {
       wrappedLDSBufferForLoadA = accelEmitterPtr->wrapLDSBufferForLoad(
           b, loc, op.getMatrixA(), op.getBlockSize(), op.getInMPerThread(), "m",
-          op.getRotateMWithK(), directToLDS, op.getLdsLayoutMxK(),
+          op.getRotateMWithK(), directToLDSA, op.getLdsLayoutMxK(),
           op.getSplitKAcrossThreadsFirstA());
     }
     if (loadBFromLDS) {
       wrappedLDSBufferForLoadB = accelEmitterPtr->wrapLDSBufferForLoad(
           b, loc, op.getMatrixB(), op.getBlockSize(), op.getInNPerThread(), "n",
-          op.getRotateNWithK(), directToLDS, op.getLdsLayoutNxK(),
+          op.getRotateNWithK(), directToLDSB, op.getLdsLayoutNxK(),
           op.getSplitKAcrossThreadsFirstB());
     }
 
     auto loadBuffer = [&](Value buffer, Value wrappedLDSBufferForLoad,
                           Value loopVar, Type argType, int64_t repeats,
-                          bool loadFromLDS, bool isA) -> Value {
+                          bool loadFromLDS, bool directToLDS,
+                          bool isA) -> Value {
       Value inputBuffer = buffer;
       SmallVector<int64_t> shape;
       if (directToLDS) {
@@ -545,7 +547,7 @@ struct BlockwiseGemmAccelRewritePattern
 
       Value bufferA = adaptor.getBufferA();
       bufferA = loadBuffer(bufferA, wrappedLDSBufferForLoadA, i, argTypeA,
-                           mRepeats, loadAFromLDS, true);
+                           mRepeats, loadAFromLDS, directToLDSA, true);
       Value viewA =
           accelEmitterPtr->generateThreadwiseViewBufferA(b, loc, bufferA);
 
@@ -557,7 +559,7 @@ struct BlockwiseGemmAccelRewritePattern
 
         Value bufferB = adaptor.getBufferB();
         bufferB = loadBuffer(bufferB, wrappedLDSBufferForLoadB, j, argTypeB,
-                             nRepeats, loadBFromLDS, false);
+                             nRepeats, loadBFromLDS, directToLDSB, false);
         Value viewB =
             accelEmitterPtr->generateThreadwiseViewBufferB(b, loc, bufferB);
 

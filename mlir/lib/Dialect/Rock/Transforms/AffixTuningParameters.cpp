@@ -5,6 +5,7 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/UtilityParams.h"
@@ -19,6 +20,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
+#include <optional>
 
 namespace mlir {
 namespace rock {
@@ -50,6 +52,41 @@ private:
   void setUtilityKernelSizes(Value arg, T utilityOp);
 };
 } // anonymous namespace
+
+static FailureOr<std::optional<int64_t>> getScheduleVersion(func::FuncOp funcOp,
+                                                            Operation *op) {
+  auto scheduleVersionAttrName = rock::ScheduleVersionAttr::getMnemonic();
+
+  std::optional<int64_t> scheduleVersion = std::nullopt;
+  bool hasPerfConfig = op->hasAttrOfType<StringAttr>("perf_config");
+  if (funcOp->hasAttrOfType<rock::ScheduleVersionAttr>(
+          scheduleVersionAttrName) &&
+      hasPerfConfig) {
+    return op->emitError(
+        "kernel has both perf_config and schedule_version attribute "
+        "set. Please modify schedule version directly inside "
+        "perf_config and remove schedule_version\n");
+  }
+  if (funcOp->hasAttrOfType<rock::ScheduleVersionAttr>(
+          scheduleVersionAttrName)) {
+    scheduleVersion = dyn_cast<rock::ScheduleVersionAttr>(
+                          funcOp->removeAttr(scheduleVersionAttrName))
+                          .getScheduleVersion();
+  } else if (!hasPerfConfig) {
+    // set default schedule
+    scheduleVersion = static_cast<int64_t>(GemmLoadTileType::Default);
+  }
+
+  // check scheduleVersion is valid
+  if (scheduleVersion.has_value()) {
+    std::optional<GemmLoadTileType> maybeLoadType =
+        rock::symbolizeGemmLoadTileType(scheduleVersion.value());
+    if (!maybeLoadType.has_value())
+      return op->emitOpError("schedule version value is incorrect");
+  }
+
+  return scheduleVersion;
+}
 
 void AffixTuningParameters::runOnOperation() {
   func::FuncOp func = getOperation();
@@ -131,30 +168,18 @@ void AffixTuningParameters::setUtilityKernelSizes(Value arg, T utilityOp) {
 void AffixTuningParameters::affixTuningParametersImpl(
     RockGemmWrapperInterface op) {
   OpBuilder b(op.getContext());
-  auto scheduleVersionAttrName = rock::ScheduleVersionAttr::getMnemonic();
   auto funcParent = op->getParentOfType<func::FuncOp>();
   std::string perfConfig;
-  if (funcParent->hasAttrOfType<rock::ScheduleVersionAttr>(
-          scheduleVersionAttrName) &&
-      op->hasAttrOfType<StringAttr>("perf_config")) {
-    op->emitError("kernel has both perf_config and schedule_version attribute "
-                  "set. Please modify schedule version directly inside "
-                  "perf_config and remove schedule_version\n");
-    signalPassFailure();
-    return;
-  }
   if (auto perfConfigAttr =
           op->template getAttrOfType<StringAttr>("perf_config")) {
     perfConfig = perfConfigAttr.getValue().str();
   }
-  // by default rocMLIR selects GEMM Schedule V1
-  auto scheduleVersion = 1;
-  if (funcParent->hasAttrOfType<rock::ScheduleVersionAttr>(
-          scheduleVersionAttrName)) {
-    scheduleVersion = dyn_cast<rock::ScheduleVersionAttr>(
-                          funcParent->removeAttr(scheduleVersionAttrName))
-                          .getScheduleVersion();
-  }
+  FailureOr<std::optional<int64_t>> maybeScheduleVersion =
+      getScheduleVersion(funcParent, op);
+  if (failed(maybeScheduleVersion))
+    return signalPassFailure();
+
+  std::optional<int64_t> scheduleVersion = maybeScheduleVersion.value();
 
   GemmFeatures features = rock::getFeatures(op);
   if (isAccel(features)) {
@@ -165,9 +190,9 @@ void AffixTuningParameters::affixTuningParametersImpl(
     // update schedule version to what is provided by the user if and only if
     // user hasn't provided perfConfig, otherwise just keep whatever is inside
     // perfConfig
-    if (!op->hasAttrOfType<StringAttr>("perf_config")) {
-      validParams.gemmScheduleVersion = scheduleVersion;
-    }
+    if (scheduleVersion.has_value())
+      validParams.gemmScheduleVersion = scheduleVersion.value();
+
     if (failed(status)) {
       // Try again if allowed.
       if (fallBackNoConfig) {
@@ -233,9 +258,8 @@ void AffixTuningParameters::affixTuningParametersImpl(
     // update schedule version to what is provided by the user if and only if
     // user hasn't provided perfConfig, otherwise just keep whatever was
     // obtained from perfConfig
-    if (!op->hasAttrOfType<StringAttr>("perf_config")) {
-      validParams.gemmScheduleVersion = scheduleVersion;
-    }
+    if (scheduleVersion.has_value())
+      validParams.gemmScheduleVersion = scheduleVersion.value();
 
     Attribute gemmParams = populateParams.getGemmParamsAttr(b, validParams);
     op.setGemmParamsAttr(gemmParams);
@@ -289,6 +313,13 @@ void AffixTuningParameters::affixTuningParametersImpl(
                  "with matrix accelerator extentions");
     return signalPassFailure();
   }
+  auto funcParent = op->getParentOfType<func::FuncOp>();
+  FailureOr<std::optional<int64_t>> maybeScheduleVersion =
+      getScheduleVersion(funcParent, op);
+  if (failed(maybeScheduleVersion))
+    return signalPassFailure();
+
+  std::optional<int64_t> scheduleVersion = maybeScheduleVersion.value();
 
   Attribute params0 = op.getGemm0Params().value_or(nullptr);
   // set a default one if params is not provided
@@ -305,6 +336,11 @@ void AffixTuningParameters::affixTuningParametersImpl(
     op.emitError("perf config string has an incorrect format.");
     return signalPassFailure();
   }
+
+  if (scheduleVersion.has_value())
+    attnPerfConfig =
+        attnPerfConfig.withScheduleVersion(scheduleVersion.value());
+
   GemmFeatures features = rock::getFeatures(op);
   RockAccelTuningParamAttrInterface accelParams0;
   if (bitEnumContainsAny(features, GemmFeatures::mfma)) {

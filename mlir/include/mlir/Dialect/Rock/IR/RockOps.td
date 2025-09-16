@@ -1372,10 +1372,10 @@ def Rock_BlockwiseGemmAccelOp
           I32Attr:$inNPerThread, UnitAttr:$rotateMWithK, UnitAttr:$rotateNWithK,
           UnitAttr:$loadAfromLDS, UnitAttr:$loadBfromLDS,
           UnitAttr:$splitKAcrossThreadsFirstA,
-          UnitAttr:$splitKAcrossThreadsFirstB, UnitAttr:$directToLDS,
-          UnitAttr:$ldsLayoutMxK, UnitAttr:$ldsLayoutNxK,
-          MemRefOf<LdsBufferTypes>:$bufferA, MemRefOf<LdsBufferTypes>:$bufferB,
-          MemRefOf<AccelResTypes>:$matrixC,
+          UnitAttr:$splitKAcrossThreadsFirstB, UnitAttr:$directToLDSA,
+          UnitAttr:$directToLDSB, UnitAttr:$ldsLayoutMxK,
+          UnitAttr:$ldsLayoutNxK, MemRefOf<LdsBufferTypes>:$bufferA,
+          MemRefOf<LdsBufferTypes>:$bufferB, MemRefOf<AccelResTypes>:$matrixC,
           Optional<MemRefOf<LdsBufferTypes>>:$bufferScaleA,
           Optional<MemRefOf<LdsBufferTypes>>:$bufferScaleB,
           TypeAttr:$elementTypeA, TypeAttr:$elementTypeB,
@@ -1414,9 +1414,10 @@ def Rock_BlockwiseLoadTileOp
           TypeAttr:$elementTypeA, TypeAttr:$elementTypeB,
           TypeAttr:$elementTypeALoad, TypeAttr:$elementTypeBLoad,
           UnitAttr:$rotateWithK, UnitAttr:$swapThreadIterSubDims,
-          UnitAttr:$LDSLayoutDxK, Variadic<Index>:$sourceIndices, I64Attr:$G,
-          I64Attr:$M, I64Attr:$N, OptionalAttr<Rock_GemmFeaturesAttr>:$features,
-          I32Attr:$blockSize, RockAccelTuningParamAttrInterface:$params)> {
+          UnitAttr:$LDSLayoutDxK, UnitAttr:$splitKAcrossThreadsFirst,
+          Variadic<Index>:$sourceIndices, I64Attr:$G, I64Attr:$M, I64Attr:$N,
+          OptionalAttr<Rock_GemmFeaturesAttr>:$features, I32Attr:$blockSize,
+          RockAccelTuningParamAttrInterface:$params)> {
   let summary =
       "Blockwise load tile from global memory to LDS and/or registers";
   let description = [{

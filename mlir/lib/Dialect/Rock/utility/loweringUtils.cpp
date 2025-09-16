@@ -29,6 +29,7 @@
 #include "llvm/Support/FormatVariadic.h"
 
 #include "llvm/Support/Debug.h"
+#include <optional>
 using namespace mlir;
 using namespace mlir::rock;
 

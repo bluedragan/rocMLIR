@@ -527,6 +527,7 @@ bool checkIfPipeliningSupported(scf::ForOp forOp) {
     if (parentLoop->hasAttr(rockPipelineAttrName)) {
       return true;
     }
+    forOp = parentLoop;
   }
   return false;
 }
@@ -536,19 +537,24 @@ bool checkIfPipeliningSupported(scf::ForOp forOp) {
 SmallVector<scf::ForOp> collectLoopLevels(mlir::func::FuncOp func) {
   SmallVector<scf::ForOp> loops;
 
-  unsigned curLevelPos = 0;
   unsigned curLevelLen = 0;
   func.walk([&](scf::ForOp forOp) {
-    loops.push_back(forOp);
-    curLevelLen++;
+    if (forOp->getParentOp() == func) {
+      loops.push_back(forOp);
+      curLevelLen++;
+    }
   });
 
+  unsigned curLevelPos = 0;
   while (curLevelLen) {
     unsigned nextLevelLen = 0;
     for (unsigned i = 0; i < curLevelLen; i++) {
-      loops[curLevelPos + i].getBody()->walk([&](scf::ForOp forOp) {
-        loops.push_back(forOp);
-        nextLevelLen++;
+      scf::ForOp currParent = loops[curLevelPos + i];
+      currParent.getBody()->walk([&](scf::ForOp forOp) {
+        if (forOp->getParentOp() == currParent) {
+          loops.push_back(forOp);
+          nextLevelLen++;
+        }
       });
     }
     curLevelPos += curLevelLen;

@@ -76,13 +76,14 @@ class LoweringBlockwiseLoadTileOp final
       const std::unique_ptr<rock::accel::AccelEmitter> &accelEmitterPtr,
       Value tid, StringRef dName, Value ldsView, Value regs, int64_t blockSize,
       int64_t inDPerThread, bool rotateDWithK, bool forceUnroll,
-      bool directToLDS, bool ldsLayoutDxK) const {
+      bool directToLDS, bool ldsLayoutDxK,
+      bool doSplitKAcrossThreadsFirst) const {
 
     // wrapLDSBufferForLoad is reading a single set of Ks into private memory
     // A/B[m/n, 0:kBasePerThread]
     Value ldsViewForLoad = accelEmitterPtr->wrapLDSBufferForLoad(
         b, loc, ldsView, blockSize, inDPerThread, dName, rotateDWithK,
-        directToLDS, ldsLayoutDxK);
+        directToLDS, ldsLayoutDxK, doSplitKAcrossThreadsFirst);
 
     // We enhance the transformation from wrapLDSBufferForLoad using a builder
     // that, given a single index, splits it into "m"("n") and "k" and lets
@@ -158,6 +159,7 @@ class LoweringBlockwiseLoadTileOp final
     bool doRotateWithK = op.getRotateWithK();
     bool doSwapThreadIterSubDims = op.getSwapThreadIterSubDims();
     bool ldsLayoutDxK = op.getLDSLayoutDxK();
+    bool doSplitKAcrossThreadsFirst = op.getSplitKAcrossThreadsFirst();
     LDSLayoutConfigDim ldsLayoutConfig{doRotateWithK, doSwapThreadIterSubDims,
                                        ldsLayoutDxK};
 
@@ -406,7 +408,8 @@ class LoweringBlockwiseLoadTileOp final
           generateReadLoop(loc, b, accelEmitterPtr, tid, dName, ldsViewForGemm,
                            destRegisters, blockSize, copyDPerThread,
                            ldsLayoutConfig.doRotateWithK, forceUnroll,
-                           directToLDS, ldsLayoutConfig.ldsLayoutDxK);
+                           directToLDS, ldsLayoutConfig.ldsLayoutDxK,
+                           doSplitKAcrossThreadsFirst);
           if (stageLDSReadNew)
             rock::YieldOp::create(b, loc);
         }

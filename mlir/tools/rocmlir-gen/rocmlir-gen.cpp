@@ -3260,6 +3260,12 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   if (!params.perfConfig.empty())
     attention->setAttr("perf_config", builder.getStringAttr(params.perfConfig));
 
+  if (gemmScheduleVersion.getValue() != GEMMScheduleVersion::V1)
+    func->setAttr(
+        rock::ScheduleVersionAttr::getMnemonic(),
+        rock::ScheduleVersionAttr::get(builder.getContext(),
+                                       int(gemmScheduleVersion.getValue())));
+
   func::ReturnOp::create(builder, loc);
   module.push_back(func);
   return func;
@@ -3374,6 +3380,12 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
     func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
                   builder.getUnitAttr());
 
+  if (gemmScheduleVersion.getValue() != GEMMScheduleVersion::V1)
+    func->setAttr(
+        rock::ScheduleVersionAttr::getMnemonic(),
+        rock::ScheduleVersionAttr::get(builder.getContext(),
+                                       int(gemmScheduleVersion.getValue())));
+
   module.push_back(func);
   return func;
 }
@@ -3462,6 +3474,12 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   if (!disableSplitKForTuning)
     func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
                   builder.getUnitAttr());
+
+  if (gemmScheduleVersion.getValue() != GEMMScheduleVersion::V1)
+    func->setAttr(
+        rock::ScheduleVersionAttr::getMnemonic(),
+        rock::ScheduleVersionAttr::get(builder.getContext(),
+                                       int(gemmScheduleVersion.getValue())));
 
   module.push_back(func);
   return func;

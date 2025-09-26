@@ -164,6 +164,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
   funcPm.addPass(rock::createRockShuffleGemmForReductions());
   funcPm.addPass(rock::createRockGridwiseGemmToBlockwisePass());
   funcPm.addPass(rock::createRockBlockwiseLoadTileToThreadwisePass());
+  funcPm.addPass(rock::createRockPreparePipelinePass());
 
   // We want to delay blockwise lowering in the fusion cases
   // until after linalg align pass because with reduction fusion

@@ -210,4 +210,10 @@ def RockAnnotateLivenessPass
   let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect"];
 }
 
+def RockPreparePipelinePass
+    : Pass<"rock-prepare-pipeline", "::mlir::func::FuncOp"> {
+  let summary = "This pass prepares ops for pipelining";
+  let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
+}
+
 #endif // MLIR_DIALECT_ROCK_PASSES

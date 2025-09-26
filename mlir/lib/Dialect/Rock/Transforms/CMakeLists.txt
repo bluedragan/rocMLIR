@@ -32,6 +32,7 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   FindFirstGemmIndex.cpp
   RemoveOutputAlloc.cpp
   BlockwiseLoadTileToThreadwise.cpp
+  PreparePipeline.cpp
   AnnotateLiveness.cpp
 
   ADDITIONAL_HEADER_DIRS

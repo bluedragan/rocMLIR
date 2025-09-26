@@ -560,7 +560,7 @@ Value mlir::rock::createSliceOfFirstDim(PatternRewriter &rewriter, Location loc,
 }
 
 template <typename AllocType>
-FailureOr<AllocType> findAlloc(Value value) {
+static FailureOr<AllocType> findAlloc(Value value) {
   auto *curOp = value.getDefiningOp();
   auto maybeAllocOp = dyn_cast_or_null<AllocType>(curOp);
   while (!maybeAllocOp) {
@@ -580,7 +580,7 @@ FailureOr<AllocType> findAlloc(Value value) {
       } else if (buffers.size() == 1) {
         curOp = buffers.back().getDefiningOp();
       } else {
-        int64_t index = selectIndex.value();
+        int64_t index = selectIndex.value() % buffers.size();
         curOp = buffers[index].getDefiningOp();
       }
     } else {

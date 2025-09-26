@@ -92,10 +92,16 @@ template <>
 struct rank<0> {};
 
 template <typename OpType>
+<<<<<<< HEAD
 static auto
 getGemmEffects(rank<1>, OpType &op,
                SmallVectorImpl<MemoryEffects::EffectInstance> &effects)
     -> decltype(void(op.getScaleA()), void(op.getScaleB())) {
+=======
+static void
+getGemmEffects(OpType &op,
+               SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+>>>>>>> 64ae93840ed4 (fixes)
   auto *read = MemoryEffects::Read::get();
   auto *write = MemoryEffects::Write::get();
 

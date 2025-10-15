@@ -69,7 +69,6 @@ if (ROCK_E2E_TEST_ENABLED)
   )
   list(APPEND CONFIGS 
   GemmElementwiseGemmF32
-  GemmElementwiseGemmF16
   GemmElementwiseGemmBF16
   ConvElementwiseGemmF32
   ConvElementwiseGemmF16

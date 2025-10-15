@@ -33,19 +33,11 @@ if (ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED)
     PrAttentionBF16
     PrAttentionI8
     PrGemmSplitK
-    PrGemmElementwiseGemmF32
-    PrGemmElementwiseGemmF16
-    PrGemmElementwiseGemmBF16
-    PrConvElementwiseGemmF32
     PrConvElementwiseGemmF16
-    PrConvElementwiseGemmBF16
-    PrGemmElementwiseGemmF32SplitK
-    PrGemmElementwiseGemmF16SplitK
-    PrGemmElementwiseGemmBF16SplitK
-    PrConvElementwiseGemmF32SplitK
     PrConvElementwiseGemmF16SplitK
-    PrConvElementwiseGemmBF16SplitK
-  )
+    PrGemmElementwiseGemmF16
+    PrGemmElementwiseGemmF16SplitK
+    )
   set(GEN_MODE "")
 endif()
 if (ROCK_E2E_TEST_ENABLED)
@@ -75,6 +67,20 @@ if (ROCK_E2E_TEST_ENABLED)
   gemm_split_k_bf16
   gemm_split_k_f32
   )
+  list(APPEND CONFIGS 
+  GemmElementwiseGemmF32
+  GemmElementwiseGemmF16
+  GemmElementwiseGemmBF16
+  ConvElementwiseGemmF32
+  ConvElementwiseGemmF16
+  ConvElementwiseGemmBF16
+  GemmElementwiseGemmF32SplitK
+  GemmElementwiseGemmF16SplitK
+  GemmElementwiseGemmBF16SplitK
+  ConvElementwiseGemmF32SplitK
+  ConvElementwiseGemmF16SplitK
+  ConvElementwiseGemmBF16SplitK
+  ) 
 endif()
 # Create a list for dummy files
 set(CONFIG_DUMMY_FILES ${CONFIGS})

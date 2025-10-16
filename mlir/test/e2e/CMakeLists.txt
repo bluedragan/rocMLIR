@@ -37,7 +37,8 @@ if (ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED)
     PrConvElementwiseGemmF16SplitK
     PrGemmElementwiseGemmF16
     PrGemmElementwiseGemmF16SplitK
-    )
+    PrGemmDirectToLDS
+  )
   set(GEN_MODE "")
 endif()
 if (ROCK_E2E_TEST_ENABLED)
@@ -80,6 +81,9 @@ if (ROCK_E2E_TEST_ENABLED)
   ConvElementwiseGemmF16SplitK
   ConvElementwiseGemmBF16SplitK
   ) 
+  list(APPEND CONFIGS
+  GemmDirectToLDS
+  )
 endif()
 # Create a list for dummy files
 set(CONFIG_DUMMY_FILES ${CONFIGS})

@@ -52,6 +52,7 @@ struct AmdArchInfo {
 };
 
 AmdArchInfo lookupArchInfo(StringRef arch);
+bool isGlobalPrefetchSupported(StringRef arch);
 } // namespace rock
 } // namespace mlir
 

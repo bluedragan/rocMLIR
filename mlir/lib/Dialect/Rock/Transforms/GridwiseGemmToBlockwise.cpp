@@ -2336,8 +2336,8 @@ struct GridwiseAttentionAccelRewritePattern
           bool loadQFromLDS = loadTypeQ == GemmLoadTileType::Default ||
                               loadTypeQ == GemmLoadTileType::DirectToLDSDefault;
           BlockwiseGemmAccelOp::create(
-              rewriter, loc, ldsTileBufferK, ldsTileBufferQ,
-              rewriter.getI32IntegerAttr(gemm0InMPerThread),
+              rewriter, loc, ldsTileBufferK, ldsTileBufferQ, /*aScale=*/nullptr,
+              /*bScale=*/nullptr, rewriter.getI32IntegerAttr(gemm0InMPerThread),
               rewriter.getI32IntegerAttr(gemm0InNPerThread),
               /*rotateMWithK=*/
               (ldsLayoutCfgMG0.doRotateWithK ? rewriter.getUnitAttr()
@@ -2357,10 +2357,11 @@ struct GridwiseAttentionAccelRewritePattern
               (ldsLayoutCfgMG0.ldsLayoutDxK ? rewriter.getUnitAttr() : nullptr),
               /*ldsLayoutNxK=*/
               (ldsLayoutCfgNG0.ldsLayoutDxK ? rewriter.getUnitAttr() : nullptr),
-              preAccelRegBufferK, preAccelRegBuffersQ, accRegBufferGemm0, /*bufferScaleA=*/nullptr,
-            /*bufferScaleB=*/nullptr,
-              TypeAttr::get(elemTypeK), TypeAttr::get(elemTypeQ), featuresAttr,
-              op.getBlockSizeAttr(), gemm0TuningParams);
+              preAccelRegBufferK, preAccelRegBuffersQ, accRegBufferGemm0,
+              /*bufferScaleA=*/nullptr,
+              /*bufferScaleB=*/nullptr, TypeAttr::get(elemTypeK),
+              TypeAttr::get(elemTypeQ), featuresAttr, op.getBlockSizeAttr(),
+              gemm0TuningParams);
 
           rock::YieldOp::create(rewriter, loc);
         }
@@ -2632,6 +2633,8 @@ struct GridwiseAttentionAccelRewritePattern
                 loadType == GemmLoadTileType::DirectToLDSDefault;
             BlockwiseGemmAccelOp::create(
                 rewriter, loc, ldsTileBufferV, gemm1LDSBufferB,
+                /*aScale=*/nullptr,
+                /*bScale=*/nullptr,
                 rewriter.getI32IntegerAttr(gemm1InMPerThread),
                 rewriter.getI32IntegerAttr(gemm1InNPerThread),
                 (ldsLayoutCfgMG1.doRotateWithK ? rewriter.getUnitAttr()
@@ -2651,7 +2654,7 @@ struct GridwiseAttentionAccelRewritePattern
                                               : nullptr),
                 /*ldsLayoutNxK=*/nullptr, preAccelRegBufferV,
                 preAccelRegBufferQxK, matrixC, /*bufferScaleA=*/nullptr,
-            /*bufferScaleB=*/nullptr, TypeAttr::get(elemTypeV),
+                /*bufferScaleB=*/nullptr, TypeAttr::get(elemTypeV),
                 TypeAttr::get(elemTypeV), featuresAttr, op.getBlockSizeAttr(),
                 gemm1TuningParams);
 

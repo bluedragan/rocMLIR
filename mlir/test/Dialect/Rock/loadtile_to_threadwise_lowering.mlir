@@ -10,9 +10,6 @@ func.func @doublebuffer(%arg0: memref<1x384x64xf32>) attributes {block_size = 25
   // CHECK: affine.for %[[arg1:.+]] = 0 to 2
     // CHECK: rock.stage
     // CHECK: rock.threadwise_read_into
-    // CHECK-NEXT: %[[nextIter:.+]] = arith.addi
-    // CHECK-NEXT: rock.threadwise_prefetch {forceUnroll, useIndexDiffs}
-    // CHECK-SAME: [%[[nextIter]]
     // CHECK-NEXT: rock.yield
     // CHECK: {name = "GlobalRead"}
 
@@ -43,9 +40,7 @@ func.func @default(%arg0: memref<1x384x64xf32>) attributes {block_size = 256 : i
   // CHECK: affine.for %[[arg1:.+]] = 0 to 2
     // CHECK: rock.stage
     // CHECK: rock.threadwise_read_into
-    // CHECK-NEXT: %[[nextIter:.+]] = arith.addi
-    // CHECK-NEXT: rock.threadwise_prefetch {forceUnroll, useIndexDiffs}
-    // CHECK-SAME: [%[[nextIter]]
+    // CHECK-NOT: rock.threadwise_prefetch
     // CHECK-NEXT: rock.yield
     // CHECK: {name = "GlobalRead"}
 
@@ -69,9 +64,7 @@ func.func @bypasslds(%arg0: memref<1x384x64xf32>) attributes {block_size = 256 :
   // CHECK: affine.for %[[arg1:.+]] = 0 to 2
     // CHECK: rock.stage
     // CHECK: rock.threadwise_read_into
-    // CHECK-NEXT: %[[nextIter:.+]] = arith.addi
-    // CHECK-NEXT: rock.threadwise_prefetch {forceUnroll, useIndexDiffs}
-    // CHECK-SAME: [%[[nextIter]]
+    // CHECK-NOT: rock.threadwise_prefetch
     // CHECK-NEXT: rock.yield
     // CHECK: {name = "GlobalRead"}
 
@@ -85,3 +78,5 @@ func.func @bypasslds(%arg0: memref<1x384x64xf32>) attributes {block_size = 256 :
   }
   return
 }
+
+// TODO(gfx1250): add _prefetch version of all

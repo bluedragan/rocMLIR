@@ -96,18 +96,22 @@ static void blockwiseGemmAccel(
     Value bufferScaleB, GemmFeaturesAttr &features, IntegerAttr blockSize,
     const RockAccelTuningParamAttrInterface &params) {
   // only pass LDS if BlockwiseGemmAccelOp will load from LDS
-  Value matrixA = nullptr;
-  if (loadTypeA == GemmLoadTileType::Default ||
-      loadTypeA == GemmLoadTileType::DirectToLDSDefault) {
-    matrixA = matrixAInput;
-    assert(matrixA != nullptr);
-  }
-  Value matrixB = nullptr;
-  if (loadTypeB == GemmLoadTileType::Default ||
-      loadTypeB == GemmLoadTileType::DirectToLDSDefault) {
-    matrixB = matrixBInput;
-    assert(matrixB != nullptr);
-  }
+  Value matrixA = matrixAInput;
+  Value matrixB = matrixBInput;
+  assert(matrixA != nullptr);
+  assert(matrixB != nullptr);
+  // Value matrixA = nullptr;
+  // if (loadTypeA == GemmLoadTileType::Default ||
+  //     loadTypeA == GemmLoadTileType::DirectToLDSDefault) {
+  //   matrixA = matrixAInput;
+  //   assert(matrixA != nullptr);
+  // }
+  // Value matrixB = nullptr;
+  // if (loadTypeB == GemmLoadTileType::Default ||
+  //     loadTypeB == GemmLoadTileType::DirectToLDSDefault) {
+  //   matrixB = matrixBInput;
+  //   assert(matrixB != nullptr);
+  // }
 
   BlockwiseGemmAccelOp::create(rewriter, loc, bufferA, bufferB, matrixC,
                                matrixParamsA, matrixParamsB, matrixA, matrixB,
@@ -118,19 +122,20 @@ static void blockwiseGemmAccel(
 
 static scf::ForOp createMainLoop(PatternRewriter &rewriter, Location loc,
                                  Value end, GemmLoadTileType loadType) {
-  bool doubleBuffering = loadType == GemmLoadTileType::DoubleBuffer ||
-                         loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
-
   // TODO: add an heuristic to decide if the it should use scheduleV1 or V2.
   // Logic to setup buffers for blockwise_gemm_accel.
-  int64_t initiationInterval = doubleBuffering ? 1 : 2;
+  int64_t initiationInterval = 1;
 
   Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
   Value start = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0);
   scf::ForOp loopOp = scf::ForOp::create(rewriter, loc, start, end, one);
-  loopOp->setAttr(
-      PipelineAttr::getMnemonic(),
-      rock::PipelineAttr::get(rewriter.getContext(), initiationInterval));
+  
+  // no pipelining for default direct to LDS
+  if(loadType != GemmLoadTileType::DirectToLDSDefault) {
+    loopOp->setAttr(
+        PipelineAttr::getMnemonic(),
+        rock::PipelineAttr::get(rewriter.getContext(), initiationInterval));
+  }
   return loopOp;
 }
 
@@ -622,6 +627,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     // Emit loop.
     Value nIterations = ConstantIndexOp::create(b, loc, K / kPerBlock);
 
+    func::FuncOp func = op->getParentOfType<func::FuncOp>();
     // double buffer not implemented for non-accel
     scf::ForOp loopOp =
         createMainLoop(b, loc, nIterations, GemmLoadTileType::Default);
@@ -2032,10 +2038,14 @@ struct GridwiseAttentionAccelRewritePattern
     bool doubleBuffering =
         loadType == GemmLoadTileType::DoubleBuffer ||
         loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
+    func::FuncOp func = op->getParentOfType<func::FuncOp>();
+    if(doubleBuffering)
+      func->setAttr("pipelining_double_buffer",
+                    rewriter.getUnitAttr());
 
-    bool doubleBufferingQ =
-        loadTypeQ == GemmLoadTileType::DoubleBuffer ||
-        loadTypeQ == GemmLoadTileType::DirectToLDSDoubleBuffer;
+    // bool doubleBufferingQ =
+    //     loadTypeQ == GemmLoadTileType::DoubleBuffer ||
+    //     loadTypeQ == GemmLoadTileType::DirectToLDSDoubleBuffer;
 
     // Note that we dont provide nRepeats because we dont want
     // nRepeats times reg buffer to be created for B of gemm0
@@ -2044,13 +2054,13 @@ struct GridwiseAttentionAccelRewritePattern
         createRegInterrimBufferForAccel(
             rewriter, loc, accelParamsGemm0.argTypeA,
             accelParamsGemm0.kBasePerThread,
-            doubleBuffering ? accelParamsGemm0.mRepeats : 1, directToLDS);
+            accelParamsGemm0.mRepeats, directToLDS);
 
     auto [preAccelRegBuffersQForLoad, preAccelRegBuffersQ] =
         createRegInterrimBufferForAccel(
             rewriter, loc, accelParamsGemm0.argTypeB,
             accelParamsGemm0.kBasePerThread,
-            (prefetchQTile || doubleBufferingQ) ? accelParamsGemm0.nRepeats : 1,
+            accelParamsGemm0.nRepeats,
             directToLDSQ);
     Value accRegBufferGemm0 =
         createBufferForAccelGemmOut(loc, accelParamsGemm0, rewriter);
@@ -2101,12 +2111,12 @@ struct GridwiseAttentionAccelRewritePattern
         createRegInterrimBufferForAccel(
             rewriter, loc, accelParamsGemm1.argTypeA,
             accelParamsGemm1.kBasePerThread,
-            doubleBuffering ? accelParamsGemm1.mRepeats : 1, directToLDS);
+            accelParamsGemm1.mRepeats, directToLDS);
     auto [preAccelRegBufferQxKForLoad, preAccelRegBufferQxK] =
         createRegInterrimBufferForAccel(
             rewriter, loc, accelParamsGemm1.argTypeB,
             accelParamsGemm1.kBasePerThread,
-            doBypassLDSSecondGemm ? accelParamsGemm1.nRepeats : 1, false);
+            accelParamsGemm1.nRepeats, false);
 
     Value accRegBufferGemm1;
     Value gemm1OutBuffer;
@@ -3066,13 +3076,17 @@ struct GridwiseGemmAccelRewritePattern
     bool doubleBuffering =
         loadType == GemmLoadTileType::DoubleBuffer ||
         loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
+    func::FuncOp func = op->getParentOfType<func::FuncOp>();
+    if(doubleBuffering)
+      func->setAttr("pipelining_double_buffer",
+                    b.getUnitAttr());
 
     auto [arrayAForLoad, arrayA] = createRegInterrimBufferForAccel(
         b, loc, params.argTypeA, params.kBasePerThread,
-        doubleBuffering ? params.mRepeats : 1, directToLDS);
+        params.mRepeats, directToLDS);
     auto [arrayBForLoad, arrayB] = createRegInterrimBufferForAccel(
         b, loc, params.argTypeB, params.kBasePerThread,
-        doubleBuffering ? params.nRepeats : 1, directToLDS);
+        params.nRepeats, directToLDS);
     Value regCAllocOp = createBufferForAccelGemmOut(loc, params, b);
     zeroAccBuffer(b, loc, regCAllocOp);
     Value arrayScaleA, arrayScaleB, arrayScaleAForLoad, arrayScaleBForLoad;
@@ -3091,11 +3105,11 @@ struct GridwiseGemmAccelRewritePattern
       std::tie(arrayScaleAForLoad, arrayScaleA) =
           createRegInterrimBufferForAccel(
               b, loc, argTypeScaleA, params.kBasePerThread,
-              doubleBuffering ? params.mRepeats : 1, directToLDS);
+              params.mRepeats, directToLDS);
       std::tie(arrayScaleBForLoad, arrayScaleB) =
           createRegInterrimBufferForAccel(
               b, loc, argTypeScaleB, params.kBasePerThread,
-              doubleBuffering ? params.nRepeats : 1, directToLDS);
+              params.nRepeats, directToLDS);
     }
 
     // Emit loop.

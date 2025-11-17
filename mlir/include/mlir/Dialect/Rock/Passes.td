@@ -225,4 +225,11 @@ def RockAnnotateLivenessPass
   let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect"];
 }
 
+def RockScheduleInstructionsPass
+    : Pass<"rock-schedule-instructions", "::mlir::func::FuncOp"> {
+  let summary = "This pass reorders operations to do instruction scheduling "
+                "optimizations such as ping-pong";
+  let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect"];
+}
+
 #endif // MLIR_DIALECT_ROCK_PASSES

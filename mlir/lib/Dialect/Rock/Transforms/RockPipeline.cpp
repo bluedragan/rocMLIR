@@ -27,6 +27,7 @@
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SCF/Transforms/Patterns.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -251,7 +252,7 @@ getDependencies(rock::StageOp stage0, rock::StageOp stage1, DagType &dag) {
 void createSchedule(SmallVector<rock::StageOp> &stages,
                     const SetVector<rock::GpuAllocOp> &resources, int64_t ii,
                     ScheduleType &schedule,
-                    DenseMap<rock::GpuAllocOp, int> &multiBuffers) {
+                    DenseMap<rock::GpuAllocOp, int> &multiBuffers, bool doubleBuffer) {
   // Create the dependency graph
   DagType dag = createDependencyGraph(stages, resources);
 
@@ -319,26 +320,28 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
       thisMultiBuffers[alloc] = 1;
     }
 
-    // Optimization: if there is a RAW register dependency (addrspace(5)) swap
+    // Optimization: if there is a RAW dependency, swap
     // the stages. In this way, we don't need multibuffers (i.e., we read the
     // buffer first and then we write into it). From the point of view of the
-    // stages, they don't care because they belong to different iterations. In
-    // theory this could be applied to any buffer, but for LDS memory this
-    // can be more expensive (i.e., you need barriers)
+    // stages, they don't care because they belong to different iterations. 
+    // 
+    // This can be applied to any buffer, but for LDS memory this
+    // can be more expensive (i.e., you need barriers). This is only enabled for LDS if `doubleBuffer` is false.
     DenseMap<unsigned, SmallVector<unsigned>> swapCandidates;
     DenseMap<unsigned, SmallVector<unsigned>> swapCandidatesR;
 
+    // TODO: this should add a barrier!!
     // Go through the stages and take note of the possible swap candidates
     for (size_t i = 0; i < parallelStages.size(); i++) {
       for (size_t j = i + 1; j < parallelStages.size(); j++) {
         auto dependencies =
             getDependencies(parallelStages[i], parallelStages[j], dag);
-        // Select all register dependencies
+        // Select all dependencies
         SmallVector<DependencyType> privateDependencyTypes;
         for (auto [res, type] : dependencies)
-          if (getAddressSpace(res) == AddressSpace::Private)
+          if ((doubleBuffer && getAddressSpace(res) == AddressSpace::Private) || !doubleBuffer)
             privateDependencyTypes.push_back(type);
-        // If there are no register dependencies, don't bother
+        // If there are no dependencies, don't bother
         if (privateDependencyTypes.empty())
           continue;
         // See if they are all swappable
@@ -601,6 +604,7 @@ void RockPipeline::runOnOperation() {
   Location loc = func->getLoc();
   IRRewriter rewriter(ctx);
 
+  bool doubleBuffer = func->hasAttr("pipelining_double_buffer");
   auto rockPipelineAttrName = rock::PipelineAttr::getMnemonic();
 
   // Maybe this might be a bit too much for now, but we are a compiler
@@ -711,7 +715,7 @@ void RockPipeline::runOnOperation() {
       ScheduleType schedule;
       // use all "resources" to generate dependency graph and generate schedule
       createSchedule(extendedStages, resources, ii, schedule,
-                     multiBufferFactors);
+                     multiBufferFactors, doubleBuffer);
 
       RewritePatternSet patterns(&getContext());
       mlir::scf::PipeliningOption options;

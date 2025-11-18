@@ -1192,12 +1192,10 @@ mlir::rock::predictThreadwiseReadIntoLoopCount(ThreadwiseReadIntoOp op) {
   // Get types directly from the op
   auto sourceViewType = dyn_cast<MemRefType>(sourceView.getType());
   if (!sourceViewType) {
-    // LLVM_DEBUG(llvm::dbgs() << "Source must be a MemRefType\n");
     return failure();
   }
   auto dstBufferType = dyn_cast<MemRefType>(dest.getType());
   if (!dstBufferType) {
-    // LLVM_DEBUG(llvm::dbgs() << "Destination must be a MemRefType\n");
     return failure();
   }
 
@@ -1212,7 +1210,6 @@ mlir::rock::predictThreadwiseReadIntoLoopCount(ThreadwiseReadIntoOp op) {
   // Get buffer type
   auto srcBufferType = dyn_cast<MemRefType>(buffer.getType());
   if (!srcBufferType) {
-    // LLVM_DEBUG(llvm::dbgs() << "Source buffer must be a MemRefType\n");
     return failure();
   }
 
@@ -1246,14 +1243,11 @@ mlir::rock::predictThreadwiseReadIntoLoopCount(ThreadwiseReadIntoOp op) {
     allTransforms.append(transforms.begin(), transforms.end());
 
     if (allTransforms.empty()) {
-      // LLVM_DEBUG(llvm::dbgs() << "transforms is empty.\n");
       return failure();
     }
     TransformMapAttr topMap = allTransforms[0];
     numValues = topMap.getUpperBounds().asArrayRef().back();
     if (isSrcVectorBuffer || isDstVectorBuffer) {
-      // LLVM_DEBUG(llvm::dbgs() << "Global to LDS should not have vector
-      // buffers, " "not implemented yet\n");
       return failure();
     }
   }
@@ -1266,8 +1260,6 @@ mlir::rock::predictThreadwiseReadIntoLoopCount(ThreadwiseReadIntoOp op) {
   if (isSrcVectorBuffer) {
     auto srcVecType = dyn_cast<VectorType>(elementType);
     if (!srcVecType) {
-      // LLVM_DEBUG(llvm::dbgs() << "Expected VectorType for source vector
-      // buffer\n");
       return failure();
     }
     vectorSrcLen = srcVecType.getNumElements();
@@ -1298,8 +1290,6 @@ mlir::rock::predictThreadwiseReadIntoLoopCount(ThreadwiseReadIntoOp op) {
   if (isDstVectorBuffer) {
     auto dstVectorType = dyn_cast<VectorType>(dstBufferType.getElementType());
     if (!dstVectorType) {
-      // LLVM_DEBUG(llvm::dbgs() << "Expected VectorType for destination vector
-      // buffer\n");
       return failure();
     }
     vectorDstLen = dstVectorType.getNumElements();

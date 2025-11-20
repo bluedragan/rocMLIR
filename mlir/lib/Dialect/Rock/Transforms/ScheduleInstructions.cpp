@@ -235,102 +235,11 @@ static Operation *moveOpAndDepedencies(Operation *op, Operation *lastInsertedOp,
 }
 
 static Operation *addClusterBarrier(OpBuilder &builder,
-                                    Operation *lastInsertedOp, bool waitForLDS) {
+                                    Operation *lastInsertedOp) {
   Location loc = lastInsertedOp->getLoc();
   builder.setInsertionPointAfter(lastInsertedOp);
-  if(waitForLDS)
-    builder.create<rock::LDSBarrierOp>(loc);
-  else
-    builder.create<gpu::BarrierOp>(loc);
+  builder.create<gpu::BarrierOp>(loc);
   return builder.create<ROCDL::SchedBarrier>(loc, 0);
-}
-
-
-static LogicalResult
-dummyMover(OpBuilder &builder, scf::ForOp loop,
-                          const ArrayRef<Operation *> accelOps,
-                          const ArrayRef<Operation *> globalLoads,
-                          const ArrayRef<Operation *> copyRegistersOps,
-                          const ArrayRef<Operation *> ldsLoads,
-                          const ArrayRef<Operation *> ldsStores) {
-  // Remove all existing barriers
-  loop->walk([&](rock::LDSBarrierOp barrier) {
-    barrier->erase();
-  });
-
-  Operation *lastInsertedOp = &loop.getBody()->front();
-
-  // BARRIER
-  builder.setInsertionPointAfter(lastInsertedOp);
-  lastInsertedOp = builder.create<rock::LDSBarrierOp>(lastInsertedOp->getLoc());
-
-  // global loads
-  size_t n = 0;
-  for (auto *globalLoad : globalLoads) {
-    lastInsertedOp =
-        moveOpAndDepedencies(globalLoad, lastInsertedOp, loop);
-    n++;
-  }
-  llvm::errs() << "moved "<<n<<" global loads\n";
-
-  // BARRIER
-  builder.setInsertionPointAfter(lastInsertedOp);
-  lastInsertedOp = builder.create<rock::LDSBarrierOp>(lastInsertedOp->getLoc());
-
-  // LDS loads
-  n = 0;
-  for (auto *ldsLoad : ldsLoads) {
-    lastInsertedOp =
-        moveOpAndDepedencies(ldsLoad, lastInsertedOp, loop);
-    n++;
-  }
-  llvm::errs() << "moved "<<n<<" LDS loads\n";
-
-  // BARRIER
-  builder.setInsertionPointAfter(lastInsertedOp);
-  lastInsertedOp = builder.create<rock::LDSBarrierOp>(lastInsertedOp->getLoc());
-
-  // 2. compute cluster
-  builder.setInsertionPointAfter(lastInsertedOp);
-  n = 0;
-  for (auto *accelOp : accelOps) {
-    lastInsertedOp =
-        moveOpAndDepedencies(accelOp, lastInsertedOp, loop);
-      n++;
-  }
-  llvm::errs() << "moved "<<n<<" accel ops\n";
-  
-  // BARRIER
-  builder.setInsertionPointAfter(lastInsertedOp);
-  lastInsertedOp = builder.create<rock::LDSBarrierOp>(lastInsertedOp->getLoc());
-
-  n = 0;
-  // all copy register ops happen in the last memory cluster
-  for (auto *copyRegistersOp : copyRegistersOps) {
-    lastInsertedOp =
-        moveOpAndDepedencies(copyRegistersOp, lastInsertedOp, loop);
-    n++;
-  }
-  llvm::errs() << "moved "<< n << " copy register ops\n";
-
-  // BARRIER
-  builder.setInsertionPointAfter(lastInsertedOp);
-  lastInsertedOp = builder.create<rock::LDSBarrierOp>(lastInsertedOp->getLoc());
-  
-  n = 0;
-  // all stores happen in the last memory cluster
-  for (auto *ldsStore : ldsStores) {
-    lastInsertedOp =
-        moveOpAndDepedencies(ldsStore, lastInsertedOp, loop);
-    n++;
-  }
-  llvm::errs() << "moved "<< n << " LDS stores\n";
-
-  // BARRIER
-  builder.setInsertionPointAfter(lastInsertedOp);
-  lastInsertedOp = builder.create<rock::LDSBarrierOp>(lastInsertedOp->getLoc());
-
-  return success();
 }
 
 // for 8 waves, split into 4 "stages"
@@ -355,13 +264,14 @@ scheduleInstruction8waves(OpBuilder &builder, scf::ForOp loop,
   int lowPriority = 0;
   int highPriority = 1;
   size_t numClusters = 4;
-  size_t numGlobalLoads = llvm::divideCeil(globalLoads.size(), numClusters-1);
+  size_t numGlobalLoads = llvm::divideCeil(globalLoads.size(), numClusters/2);
   size_t numLDSLoads = llvm::divideCeil(ldsLoads.size(), numClusters-1);
   size_t numAccelOps = llvm::divideCeil(accelOps.size(), numClusters);
   numLDSLoads = ldsLoads.size();
 
   Operation *lastInsertedOp = &loop.getBody()->front();
 
+  size_t globalLoadIdx = 0;
   for (size_t cluster = 0; cluster < numClusters; cluster++) {
     llvm::errs() << "cluster="<<cluster<<"\n";
     // 1. memory cluster
@@ -378,6 +288,7 @@ scheduleInstruction8waves(OpBuilder &builder, scf::ForOp loop,
       }
       llvm::errs() << "moved "<< n << " copy register ops\n";
       builder.setInsertionPointAfter(lastInsertedOp);
+      // TODO: only needed for single-buffer
       lastInsertedOp = builder.create<rock::LDSBarrierOp>(lastInsertedOp->getLoc());
       n = 0;
       // all stores happen in the last memory cluster
@@ -392,13 +303,17 @@ scheduleInstruction8waves(OpBuilder &builder, scf::ForOp loop,
     } else {
       // global loads
       int n = 0;
-      for (size_t idx = 0; idx < numGlobalLoads; idx++) {
-        size_t clusterIdx = idx + cluster * numGlobalLoads;
-        if (clusterIdx < globalLoads.size()) {
-          lastInsertedOp =
-              moveOpAndDepedencies(globalLoads[clusterIdx], lastInsertedOp, loop);
-          n++;
+      llvm::errs() << "cluster % 2 == 0 = " << (cluster % 2 == 0) << "\n";
+      if(cluster % 2 == 0) {
+        for (size_t idx = 0; idx < numGlobalLoads; idx++) {
+          size_t clusterIdx = idx + globalLoadIdx;
+          if (clusterIdx < globalLoads.size()) {
+            lastInsertedOp =
+                moveOpAndDepedencies(globalLoads[clusterIdx], lastInsertedOp, loop);
+            n++;
+          }
         }
+        globalLoadIdx += n;
       }
       llvm::errs() << "moved "<<n<<" global loads\n";
       if(cluster == 0) {
@@ -419,7 +334,7 @@ scheduleInstruction8waves(OpBuilder &builder, scf::ForOp loop,
       llvm::errs() << "moved "<<n<<" LDS loads\n";
     }
 
-    lastInsertedOp = addClusterBarrier(builder, lastInsertedOp, cluster != numClusters - 1);
+    lastInsertedOp = addClusterBarrier(builder, lastInsertedOp);
 
     // 2. compute cluster
     builder.setInsertionPointAfter(lastInsertedOp);
@@ -439,7 +354,7 @@ scheduleInstruction8waves(OpBuilder &builder, scf::ForOp loop,
         builder.create<ROCDL::SetPrioOp>(lastInsertedOp->getLoc(), lowPriority);
 
       llvm::errs() << "moved "<<n<<" accel ops\n";
-    lastInsertedOp = addClusterBarrier(builder, lastInsertedOp, false);
+    lastInsertedOp = addClusterBarrier(builder, lastInsertedOp);
   }
   return success();
 }

@@ -289,7 +289,7 @@ scheduleInstruction8waves(OpBuilder &builder, scf::ForOp loop,
       llvm::errs() << "moved "<< n << " copy register ops\n";
       builder.setInsertionPointAfter(lastInsertedOp);
       // TODO: only needed for single-buffer
-      lastInsertedOp = builder.create<rock::LDSBarrierOp>(lastInsertedOp->getLoc());
+      // lastInsertedOp = builder.create<rock::LDSBarrierOp>(lastInsertedOp->getLoc());
       n = 0;
       // all stores happen in the last memory cluster
       for (size_t idx = 0; idx < ldsStores.size(); idx++) {
@@ -301,28 +301,13 @@ scheduleInstruction8waves(OpBuilder &builder, scf::ForOp loop,
       }
       llvm::errs() << "moved "<< n << " LDS stores\n";
     } else {
-      // global loads
-      int n = 0;
-      llvm::errs() << "cluster % 2 == 0 = " << (cluster % 2 == 0) << "\n";
-      if(cluster % 2 == 0) {
-        for (size_t idx = 0; idx < numGlobalLoads; idx++) {
-          size_t clusterIdx = idx + globalLoadIdx;
-          if (clusterIdx < globalLoads.size()) {
-            lastInsertedOp =
-                moveOpAndDepedencies(globalLoads[clusterIdx], lastInsertedOp, loop);
-            n++;
-          }
-        }
-        globalLoadIdx += n;
-      }
-      llvm::errs() << "moved "<<n<<" global loads\n";
       if(cluster == 0) {
         // backward barrier
         builder.setInsertionPointAfter(lastInsertedOp);
         lastInsertedOp = builder.create<rock::LDSBarrierOp>(lastInsertedOp->getLoc());
       }
       // LDS loads
-      n = 0;
+      int n = 0;
       for (size_t idx = 0; idx < numLDSLoads; idx++) {
         size_t clusterIdx = idx + cluster * numLDSLoads;
         if (clusterIdx < ldsLoads.size()) {
@@ -332,6 +317,22 @@ scheduleInstruction8waves(OpBuilder &builder, scf::ForOp loop,
         }
       }
       llvm::errs() << "moved "<<n<<" LDS loads\n";
+      
+      // global loads
+      n = 0;
+      // llvm::errs() << "cluster % 2 == 0 = " << (cluster % 2 == 0) << "\n";
+      // if(cluster % 2 == 0) {
+        for (size_t idx = 0; idx < numGlobalLoads; idx++) {
+          size_t clusterIdx = idx + globalLoadIdx;
+          if (clusterIdx < globalLoads.size()) {
+            lastInsertedOp =
+                moveOpAndDepedencies(globalLoads[clusterIdx], lastInsertedOp, loop);
+            n++;
+          }
+        }
+        globalLoadIdx += n;
+      // }
+      llvm::errs() << "moved "<<n<<" global loads\n";
     }
 
     lastInsertedOp = addClusterBarrier(builder, lastInsertedOp);

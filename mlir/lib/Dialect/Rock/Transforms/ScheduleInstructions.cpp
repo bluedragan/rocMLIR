@@ -352,9 +352,9 @@ scheduleInstruction8waves(OpBuilder &builder, scf::ForOp loop,
     builder.setInsertionPointAfter(lastInsertedOp);
     lastInsertedOp =
         builder.create<ROCDL::SetPrioOp>(lastInsertedOp->getLoc(), lowPriority);
-
       llvm::errs() << "moved "<<n<<" accel ops\n";
-    lastInsertedOp = addClusterBarrier(builder, lastInsertedOp);
+    if(cluster != numClusters - 2)
+      lastInsertedOp = addClusterBarrier(builder, lastInsertedOp);
   }
   return success();
 }
@@ -512,6 +512,7 @@ scheduleInstructions(OpBuilder &builder, func::FuncOp &func, scf::ForOp forOp) {
 
   // 3. reorder them
   if (numWaves == 8) {
+    LLVM_DEBUG(DBGS() << "8 waves\n");
     if (failed(scheduleInstruction8waves(builder, forOp, accelOps, globalLoads, copyRegistersOps,
                                          ldsLoads, ldsStores)))
       return failure();

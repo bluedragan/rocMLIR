@@ -267,7 +267,7 @@ scheduleInstruction8waves(OpBuilder &builder, scf::ForOp loop,
   size_t numGlobalLoads = llvm::divideCeil(globalLoads.size(), numClusters/2);
   size_t numLDSLoads = llvm::divideCeil(ldsLoads.size(), numClusters-1);
   size_t numAccelOps = llvm::divideCeil(accelOps.size(), numClusters);
-  numLDSLoads = ldsLoads.size();
+  // numLDSLoads = ldsLoads.size();
 
   Operation *lastInsertedOp = &loop.getBody()->front();
 
@@ -523,7 +523,7 @@ scheduleInstructions(OpBuilder &builder, func::FuncOp &func, scf::ForOp forOp) {
   //     return failure();
   // }
 
-  // addAsymmetricSyncToLoop(builder, forOp);
+  addAsymmetricSyncToLoop(builder, forOp);
   return success();
 }
 

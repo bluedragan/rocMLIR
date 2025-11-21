@@ -30,6 +30,7 @@
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/LogicalResult.h"
 #include <algorithm>
+#include <limits>
 
 namespace mlir {
 namespace rock {
@@ -99,6 +100,40 @@ getSchedules(Operation *op, const TuningParamSetKind &tuningKind) {
   return schedules;
 }
 
+static std::vector<uint32_t> computeDPerBlock(TuningParamSetKind tuningKind) {
+  std::vector<uint32_t> dPerBlockList;
+
+  if (tuningKind == TuningParamSetKind::Exhaustive) {
+    dPerBlockList.push_back(16);
+    // TODO: try `dPerBlock += 16`
+    for (uint32_t dPerBlock = 32; dPerBlock < 512; dPerBlock += 32) {
+      dPerBlockList.push_back(dPerBlock);
+    }
+  } else {
+    for (uint32_t dPerBlock = 16; dPerBlock < 512; dPerBlock *= 2) {
+      dPerBlockList.push_back(dPerBlock);
+    }
+  }
+  return dPerBlockList;
+}
+
+static SmallVector<uint32_t> computeDPerWave(TuningParamSetKind tuningKind,
+                                             uint32_t dPerBlock) {
+  SmallVector<uint32_t> dPerWaveList;
+  uint32_t maxDPerWave = (tuningKind == TuningParamSetKind::Exhaustive)
+                             ? std::numeric_limits<uint32_t>::max()
+                             : 128;
+  for (uint32_t factor = 1; factor <= 16; factor *= 2) {
+    assert(dPerBlock % factor == 0);
+    uint32_t dPerWave = dPerBlock / factor;
+    // mnPerXdl is 16 or higher (we do not use block != 1 mfmas)
+    // and dPerWave >= mnPerXdl
+    if (dPerWave >= 16 && dPerWave <= maxDPerWave)
+      dPerWaveList.push_back(dPerWave);
+  }
+  return dPerWaveList;
+}
+
 // Keep in sync with attentionSweeps.py
 // The full space is a brute-force search for attention kernels
 static void createAttnTuningRangeBF(TuningParamSet *newSpace,
@@ -106,22 +141,18 @@ static void createAttnTuningRangeBF(TuningParamSet *newSpace,
                                     bool isSplitKFusible,
                                     TuningParamSetKind kind) {
   static const std::vector<std::vector<uint32_t>> validRangeAttnParamsMFMA = {
-      /*gemm0MPerBlock=*/{16, 32, 64, 128, 256},
-      /*gemm1MPerBlock=*/{16, 32, 64, 128, 256},
-      /*gemm0NPerBlock=*/{16, 32, 64, 128, 256},
+      /*gemm0MPerBlock=*/computeDPerBlock(kind),
+      /*gemm1MPerBlock=*/computeDPerBlock(kind),
+      /*gemm0NPerBlock=*/computeDPerBlock(kind),
       /*kPackPerBlock=*/{2, 4, 8, 16, 32, 64},
-      /*mPerWave=*/{16, 32, 64, 128, 256},
-      /*nPerWave=*/{16, 32, 64, 128, 256},
-      /*mnPerXdl=*/{4, 16, 32},
+      /*mnPerXdl=*/{16, 32},
       /*kPack=*/{4, 8, 16},
       getSchedules(gemmGemmOp, kind)};
   static const std::vector<std::vector<uint32_t>> validRangeAttnParamsWMMA = {
-      /*gemm0MPerBlock=*/{16, 32, 64, 128},
-      /*gemm1MPerBlock=*/{16, 32, 64, 128},
-      /*gemm0NPerBlock=*/{16, 32, 64, 128, 256},
+      /*gemm0MPerBlock=*/computeDPerBlock(kind),
+      /*gemm1MPerBlock=*/computeDPerBlock(kind),
+      /*gemm0NPerBlock=*/computeDPerBlock(kind),
       /*kPackPerBlock=*/{2, 4, 8, 16, 32, 64},
-      /*mPerWave=*/{16, 32, 64},
-      /*nPerWave=*/{16, 32, 64},
       /*mnPerXdl=*/{16},
       /*kPack=*/{4, 8, 16},
       getSchedules(gemmGemmOp, kind)};
@@ -142,18 +173,20 @@ static void createAttnTuningRangeBF(TuningParamSet *newSpace,
   int64_t outputSwizzle{2};
   OpBuilder b(gemmGemmOp.getContext());
   for (uint32_t gemm0MPerBlock : validRangeAttnParams[0]) {
+    auto mPerWaveList = computeDPerWave(kind, gemm0MPerBlock);
     for (uint32_t gemm1MPerBlock : validRangeAttnParams[1]) {
       for (uint32_t gemm0NPerBlock : validRangeAttnParams[2]) {
+        auto nPerWaveList = computeDPerWave(kind, gemm0NPerBlock);
         auto optimalSplitKFactors = computeOptimalSplitKFactors(
             gemmGemmOp, gemm0NPerBlock, isSplitKFusible);
 
         for (uint32_t gemmKPerBlock : validRangeAttnParams[3]) {
-          for (uint32_t gemmMPerWave : validRangeAttnParams[4]) {
-            for (uint32_t gemmNPerWave : validRangeAttnParams[5]) {
-              for (uint32_t gemmMnPerXdl : validRangeAttnParams[6]) {
-                for (uint32_t gemmKPack : validRangeAttnParams[7]) {
+          for (uint32_t gemmMPerWave : mPerWaveList) {
+            for (uint32_t gemmNPerWave : nPerWaveList) {
+              for (uint32_t gemmMnPerXdl : validRangeAttnParams[4]) {
+                for (uint32_t gemmKPack : validRangeAttnParams[5]) {
                   for (int64_t splitKFactor : optimalSplitKFactors) {
-                    for (uint32_t gemmSchedule : validRangeAttnParams[8]) {
+                    for (uint32_t gemmSchedule : validRangeAttnParams[6]) {
                       if (isWMMA) {
                         int64_t rdnaWaves = (gemm0MPerBlock / gemmMPerWave) *
                                             (gemm0NPerBlock / gemmNPerWave);
@@ -292,40 +325,34 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
   const std::vector<std::vector<uint32_t>> validRangeGeneralGemmParams = {
       {64, 128, 256}, {32, 64, 128}, {32, 64, 128}, {4, 8, 16}, {2, 4}, {2, 4}};
 
-  // M/block N/block K/block M/wave N/wave kPack scheduleVersion
+  // M/block N/block K/block MnPerXdl kPack scheduleVersion
   // aCopyMore/forceUnroll
   const std::vector<std::vector<uint32_t>> validRangeAccelGemmParams = {
-      {4, 8, 16, 32, 64, 128, 256},
-      {16, 32, 64, 128, 256},
+      computeDPerBlock(kind),
+      computeDPerBlock(kind),
       {1, 2, 4, 8},
-      {4, 8, 16, 32, 64, 128},
-      {4, 8, 16, 32, 64, 128},
-      {4, 16, 32},
+      {16, 32},
       {1, 4, 8, 16, 32},
       getSchedules(gemmOp, kind),
       {0, 1}};
 
-  // M/block N/block K/block M/wave N/wave MnPerXdl kPack scheduleVersion
+  // M/block N/block K/block MnPerXdl kPack scheduleVersion
   // aCopyMore/forceUnroll
   const std::vector<std::vector<uint32_t>>
-      validRangeAccelGemmParams8BitReduction = {{4, 8, 16, 32, 64, 128, 256},
-                                                {16, 32, 64, 128, 256},
+      validRangeAccelGemmParams8BitReduction = {computeDPerBlock(kind),
+                                                computeDPerBlock(kind),
                                                 {4, 8, 16, 32},
-                                                {4, 8, 16, 32, 64, 128},
-                                                {4, 8, 16, 32, 64, 128},
                                                 {16, 32},
                                                 {1, 4, 8, 16},
                                                 getSchedules(gemmOp, kind),
                                                 {0, 1}};
 
-  // M/block N/block K/block M/wave N/wave Mn/Xdl kPack scheduleVersion
+  // M/block N/block K/block Mn/Xdl kPack scheduleVersion
   // aCopyMore/forceUnroll
   const std::vector<std::vector<uint32_t>> validRangeWmmaGemmParams = {
-      {4, 8, 16, 32, 64, 128, 256},
-      {16, 32, 64, 128, 256},
+      computeDPerBlock(kind),
+      computeDPerBlock(kind),
       {1, 2, 4, 8},
-      {4, 8, 16, 32, 64, 128},
-      {4, 8, 16, 32, 64, 128},
       {16},
       {4, 8, 16},
       getSchedules(gemmOp, kind),
@@ -344,18 +371,20 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
         is8BitReduction ? validRangeAccelGemmParams8BitReduction
                         : validRangeAccelGemmParams;
     for (uint32_t gemmMPerBlock : xdlopsParams[0]) {
+      auto mPerWaveList = computeDPerWave(kind, gemmMPerBlock);
       for (uint32_t gemmNPerBlock : xdlopsParams[1]) {
+        auto nPerWaveList = computeDPerWave(kind, gemmNPerBlock);
         for (uint32_t gemmKPerBlock : xdlopsParams[2]) {
-          for (uint32_t gemmMPerWave : xdlopsParams[3]) {
-            for (uint32_t gemmNPerWave : xdlopsParams[4]) {
-              for (uint32_t gemmMnPerXdl : xdlopsParams[5]) {
-                for (uint32_t gemmKPack : xdlopsParams[6]) {
+          for (uint32_t gemmMPerWave : mPerWaveList) {
+            for (uint32_t gemmNPerWave : nPerWaveList) {
+              for (uint32_t gemmMnPerXdl : xdlopsParams[3]) {
+                for (uint32_t gemmKPack : xdlopsParams[4]) {
                   auto optimalSplitKFactors = computeOptimalSplitKFactors(
                       gemmOp, gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
                       gemmKPack, isSplitKFusible);
                   for (int64_t splitKFactor : optimalSplitKFactors) {
-                    for (int64_t gemmSchedule : xdlopsParams[7]) {
-                      for (uint32_t forceUnroll : xdlopsParams[8]) {
+                    for (int64_t gemmSchedule : xdlopsParams[5]) {
+                      for (uint32_t forceUnroll : xdlopsParams[6]) {
                         // hardcode outputSwizzle to heuristics = 2
                         InitParamsAccel gemmParams(
                             gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
@@ -389,18 +418,20 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
         validRangeWmmaGemmParams;
     PopulateParamsWmma tuningInfo;
     for (uint32_t gemmMPerBlock : wmmaParams[0]) {
+      auto mPerWaveList = computeDPerWave(kind, gemmMPerBlock);
       for (uint32_t gemmNPerBlock : wmmaParams[1]) {
+        auto nPerWaveList = computeDPerWave(kind, gemmNPerBlock);
         for (uint32_t gemmKPerBlock : wmmaParams[2]) {
-          for (uint32_t gemmMPerWave : wmmaParams[3]) {
-            for (uint32_t gemmNPerWave : wmmaParams[4]) {
-              for (uint32_t gemmMnPerXdl : wmmaParams[5]) {
-                for (uint32_t gemmKPack : wmmaParams[6]) {
+          for (uint32_t gemmMPerWave : mPerWaveList) {
+            for (uint32_t gemmNPerWave : nPerWaveList) {
+              for (uint32_t gemmMnPerXdl : wmmaParams[3]) {
+                for (uint32_t gemmKPack : wmmaParams[4]) {
                   auto optimalSplitKFactors = computeOptimalSplitKFactors(
                       gemmOp, gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
                       gemmKPack, isSplitKFusible);
                   for (auto splitKFactor : optimalSplitKFactors) {
-                    for (uint32_t gemmSchedule : wmmaParams[7]) {
-                      for (uint32_t forceUnroll : wmmaParams[8]) {
+                    for (uint32_t gemmSchedule : wmmaParams[5]) {
+                      for (uint32_t forceUnroll : wmmaParams[6]) {
                         // hardcode outputSwizzle to heuristics = 2
                         InitParamsAccel gemmParams(
                             gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,

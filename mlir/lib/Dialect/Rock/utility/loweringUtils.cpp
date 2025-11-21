@@ -231,8 +231,14 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
 
   // Note: (kThreads * dThreads) = (kPerBlock * dPerBlock) / dataPerThread) =
   // blockSize
-  int64_t kThreads = kPerBlock / kPerThread;
+  if (dPerBlock % dPerThread != 0) {
+    return failure();
+  }
   int64_t dThreads = dPerBlock / dPerThread;
+  int64_t kThreads = blockSize / dThreads;
+  if (kThreads * dThreads != blockSize) {
+    return failure();
+  }
 
   RegsAsMatrixSubTiles gpuViews;
   {
@@ -325,8 +331,14 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
 
   // Note: (kThreads * dThreads) = (kPerBlock * dPerBlock) / dataPerThread) =
   // blockSize
-  int64_t kThreads = kPerBlock / kPerThread;
+  if (dPerBlock % dPerThread != 0) {
+    return failure();
+  }
   int64_t dThreads = dPerBlock / dPerThread;
+  int64_t kThreads = blockSize / dThreads;
+  if (kThreads * dThreads != blockSize) {
+    return failure();
+  }
 
   int64_t kpackPerThread = std::min(kPerThread, kpack);
   assert(kPerThread % kpackPerThread == 0);

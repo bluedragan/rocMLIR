@@ -491,10 +491,12 @@ PopulateParamsXDL::isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param,
   }
 
   if (param.getMPerWave() % param.getMnPerXdl() != 0) {
+    LLVM_DEBUG(llvm::dbgs() << "tuning: mPerWave not divisible by mnPerXdl\n");
     return failure();
   }
 
   if (param.getNPerWave() % param.getMnPerXdl() != 0) {
+    LLVM_DEBUG(llvm::dbgs() << "tuning: nPerWave not divisible by mnPerXdl\n");
     return failure();
   }
 
@@ -780,11 +782,15 @@ LogicalResult PopulateParamsWmma::isValidBlockwiseGemm(
   if ((param.getNPerBlock() % param.getNPerWave()) != 0)
     return failure();
 
-  if (param.getMPerWave() % param.getMnPerXdl() != 0)
+  if (param.getMPerWave() % param.getMnPerXdl() != 0) {
+    LLVM_DEBUG(llvm::dbgs() << "tuning: mPerWave not divisible by mnPerXdl\n");
     return failure();
+  }
 
-  if (param.getNPerWave() % param.getMnPerXdl() != 0)
+  if (param.getNPerWave() % param.getMnPerXdl() != 0) {
+    LLVM_DEBUG(llvm::dbgs() << "tuning: nPerWave not divisible by mnPerXdl\n");
     return failure();
+  }
 
   // Sledgehammer hotfix because not unrolling sometimes makes the register
   // allocator break. This should be refined quickly.

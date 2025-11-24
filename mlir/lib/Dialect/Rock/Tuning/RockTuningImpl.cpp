@@ -130,7 +130,9 @@ static SmallVector<uint32_t> computeDPerWave(TuningParamSetKind tuningKind,
     maxFactor = maxHardwareWorkgroupSize / waveSize;
   }
   for (uint32_t factor = 1; factor <= maxFactor; factor *= 2) {
-    assert(dPerBlock % factor == 0);
+    if (dPerBlock % factor != 0)
+      continue;
+
     uint32_t dPerWave = dPerBlock / factor;
     // mnPerXdl is 16 or higher (we do not use block != 1 mfmas)
     // and dPerWave >= mnPerXdl

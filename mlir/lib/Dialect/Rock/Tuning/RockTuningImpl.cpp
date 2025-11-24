@@ -118,12 +118,18 @@ static std::vector<uint32_t> computeDPerBlock(TuningParamSetKind tuningKind) {
 }
 
 static SmallVector<uint32_t> computeDPerWave(TuningParamSetKind tuningKind,
-                                             uint32_t dPerBlock) {
+                                             uint32_t dPerBlock,
+                                             int64_t waveSize) {
   SmallVector<uint32_t> dPerWaveList;
   uint32_t maxDPerWave = (tuningKind == TuningParamSetKind::Exhaustive)
                              ? std::numeric_limits<uint32_t>::max()
                              : 128;
-  for (uint32_t factor = 1; factor <= 16; factor *= 2) {
+
+  uint32_t maxFactor = 16;
+  if (tuningKind == TuningParamSetKind::Exhaustive) {
+    maxFactor = maxHardwareWorkgroupSize / waveSize;
+  }
+  for (uint32_t factor = 1; factor <= maxFactor; factor *= 2) {
     assert(dPerBlock % factor == 0);
     uint32_t dPerWave = dPerBlock / factor;
     // mnPerXdl is 16 or higher (we do not use block != 1 mfmas)
@@ -140,18 +146,19 @@ static void createAttnTuningRangeBF(TuningParamSet *newSpace,
                                     RockGemmGemmWrapperInterface gemmGemmOp,
                                     bool isSplitKFusible,
                                     TuningParamSetKind kind) {
+  auto dPerBlock = computeDPerBlock(kind);
   static const std::vector<std::vector<uint32_t>> validRangeAttnParamsMFMA = {
-      /*gemm0MPerBlock=*/computeDPerBlock(kind),
-      /*gemm1MPerBlock=*/computeDPerBlock(kind),
-      /*gemm0NPerBlock=*/computeDPerBlock(kind),
+      /*gemm0MPerBlock=*/dPerBlock,
+      /*gemm1MPerBlock=*/dPerBlock,
+      /*gemm0NPerBlock=*/dPerBlock,
       /*kPackPerBlock=*/{2, 4, 8, 16, 32, 64},
       /*mnPerXdl=*/{16, 32},
       /*kPack=*/{4, 8, 16},
       getSchedules(gemmGemmOp, kind)};
   static const std::vector<std::vector<uint32_t>> validRangeAttnParamsWMMA = {
-      /*gemm0MPerBlock=*/computeDPerBlock(kind),
-      /*gemm1MPerBlock=*/computeDPerBlock(kind),
-      /*gemm0NPerBlock=*/computeDPerBlock(kind),
+      /*gemm0MPerBlock=*/dPerBlock,
+      /*gemm1MPerBlock=*/dPerBlock,
+      /*gemm0NPerBlock=*/dPerBlock,
       /*kPackPerBlock=*/{2, 4, 8, 16, 32, 64},
       /*mnPerXdl=*/{16},
       /*kPack=*/{4, 8, 16},
@@ -170,13 +177,15 @@ static void createAttnTuningRangeBF(TuningParamSet *newSpace,
     // We only support GPUs with matrix accelerator extentions
     return;
   }
+  int64_t waveSize =
+      rock::lookupArchInfo(rock::getArchValue(gemmGemmOp)).waveSize;
   int64_t outputSwizzle{2};
   OpBuilder b(gemmGemmOp.getContext());
   for (uint32_t gemm0MPerBlock : validRangeAttnParams[0]) {
-    auto mPerWaveList = computeDPerWave(kind, gemm0MPerBlock);
+    auto mPerWaveList = computeDPerWave(kind, gemm0MPerBlock, waveSize);
     for (uint32_t gemm1MPerBlock : validRangeAttnParams[1]) {
       for (uint32_t gemm0NPerBlock : validRangeAttnParams[2]) {
-        auto nPerWaveList = computeDPerWave(kind, gemm0NPerBlock);
+        auto nPerWaveList = computeDPerWave(kind, gemm0NPerBlock, waveSize);
         auto optimalSplitKFactors = computeOptimalSplitKFactors(
             gemmGemmOp, gemm0NPerBlock, isSplitKFusible);
 
@@ -325,38 +334,30 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
   const std::vector<std::vector<uint32_t>> validRangeGeneralGemmParams = {
       {64, 128, 256}, {32, 64, 128}, {32, 64, 128}, {4, 8, 16}, {2, 4}, {2, 4}};
 
+  auto dPerBlock = computeDPerBlock(kind);
   // M/block N/block K/block MnPerXdl kPack scheduleVersion
   // aCopyMore/forceUnroll
   const std::vector<std::vector<uint32_t>> validRangeAccelGemmParams = {
-      computeDPerBlock(kind),
-      computeDPerBlock(kind),
-      {1, 2, 4, 8},
-      {16, 32},
-      {1, 4, 8, 16, 32},
-      getSchedules(gemmOp, kind),
+      dPerBlock, dPerBlock,         {1, 2, 4, 8},
+      {16, 32},  {1, 4, 8, 16, 32}, getSchedules(gemmOp, kind),
       {0, 1}};
 
   // M/block N/block K/block MnPerXdl kPack scheduleVersion
   // aCopyMore/forceUnroll
   const std::vector<std::vector<uint32_t>>
-      validRangeAccelGemmParams8BitReduction = {computeDPerBlock(kind),
-                                                computeDPerBlock(kind),
-                                                {4, 8, 16, 32},
-                                                {16, 32},
-                                                {1, 4, 8, 16},
-                                                getSchedules(gemmOp, kind),
-                                                {0, 1}};
+      validRangeAccelGemmParams8BitReduction = {
+          dPerBlock, dPerBlock,     {4, 8, 16, 32},
+          {16, 32},  {1, 4, 8, 16}, getSchedules(gemmOp, kind),
+          {0, 1}};
 
   // M/block N/block K/block Mn/Xdl kPack scheduleVersion
   // aCopyMore/forceUnroll
   const std::vector<std::vector<uint32_t>> validRangeWmmaGemmParams = {
-      computeDPerBlock(kind),
-      computeDPerBlock(kind),
-      {1, 2, 4, 8},
-      {16},
-      {4, 8, 16},
-      getSchedules(gemmOp, kind),
+      dPerBlock, dPerBlock,  {1, 2, 4, 8},
+      {16},      {4, 8, 16}, getSchedules(gemmOp, kind),
       {0, 1}};
+
+  int64_t waveSize = rock::lookupArchInfo(rock::getArchValue(gemmOp)).waveSize;
 
   OpBuilder b(gemmOp.getContext());
   GemmFeatures currentFeatures = rock::getFeatures(gemmOp);
@@ -371,9 +372,9 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
         is8BitReduction ? validRangeAccelGemmParams8BitReduction
                         : validRangeAccelGemmParams;
     for (uint32_t gemmMPerBlock : xdlopsParams[0]) {
-      auto mPerWaveList = computeDPerWave(kind, gemmMPerBlock);
+      auto mPerWaveList = computeDPerWave(kind, gemmMPerBlock, waveSize);
       for (uint32_t gemmNPerBlock : xdlopsParams[1]) {
-        auto nPerWaveList = computeDPerWave(kind, gemmNPerBlock);
+        auto nPerWaveList = computeDPerWave(kind, gemmNPerBlock, waveSize);
         for (uint32_t gemmKPerBlock : xdlopsParams[2]) {
           for (uint32_t gemmMPerWave : mPerWaveList) {
             for (uint32_t gemmNPerWave : nPerWaveList) {
@@ -418,9 +419,9 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
         validRangeWmmaGemmParams;
     PopulateParamsWmma tuningInfo;
     for (uint32_t gemmMPerBlock : wmmaParams[0]) {
-      auto mPerWaveList = computeDPerWave(kind, gemmMPerBlock);
+      auto mPerWaveList = computeDPerWave(kind, gemmMPerBlock, waveSize);
       for (uint32_t gemmNPerBlock : wmmaParams[1]) {
-        auto nPerWaveList = computeDPerWave(kind, gemmNPerBlock);
+        auto nPerWaveList = computeDPerWave(kind, gemmNPerBlock, waveSize);
         for (uint32_t gemmKPerBlock : wmmaParams[2]) {
           for (uint32_t gemmMPerWave : mPerWaveList) {
             for (uint32_t gemmNPerWave : nPerWaveList) {

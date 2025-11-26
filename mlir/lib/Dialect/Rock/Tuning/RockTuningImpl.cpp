@@ -61,6 +61,7 @@ static SmallVector<uint32_t> computeDPerWave(TuningParamSetKind tuningKind,
     if (dPerWave >= 16 && dPerWave <= maxDPerWave)
       dPerWaveList.push_back(dPerWave);
   }
+  assert(!dPerWaveList.empty() && "dPerWaveList can't be empty");
   return dPerWaveList;
 }
 
@@ -228,7 +229,7 @@ static void createAttnTuningRangeGreedyPhase1(
       rock::lookupArchInfo(rock::getArchValue(gemmGemmOp)).waveSize;
   if (!bitEnumContainsAny(features, GemmFeatures::mfma) &&
       !bitEnumContainsAny(features, GemmFeatures::wmma)) {
-    // We only support GPUs with matrix accelerator extentions
+    // We only support GPUs with matrix accelerator extensions
     return;
   }
 
@@ -283,7 +284,7 @@ static void createAttnTuningRangeGreedyPhase2(
   GemmFeatures features = rock::getFeatures(gemmGemmOp);
   bool isWMMA = bitEnumContainsAny(features, GemmFeatures::wmma);
   if (!bitEnumContainsAny(features, GemmFeatures::mfma) && !isWMMA) {
-    // We only support GPUs with matrix accelerator extentions
+    // We only support GPUs with matrix accelerator extensions
     return;
   }
   int64_t waveSize =
@@ -342,7 +343,7 @@ static void createAttnTuningRangeBF(TuningParamSet *newSpace,
       rock::lookupArchInfo(rock::getArchValue(gemmGemmOp)).numEUPerCU;
   bool isWMMA = bitEnumContainsAny(features, GemmFeatures::wmma);
   if (!bitEnumContainsAny(features, GemmFeatures::mfma) && !isWMMA) {
-    // We only support GPUs with matrix accelerator extentions
+    // We only support GPUs with matrix accelerator extensions
     return;
   }
   int64_t waveSize =
@@ -699,7 +700,7 @@ static void createAttnTuningRangeQuick(TuningParamSet *newSpace, Op attnOp,
           cast<RockTuningParamAttrInterface>(params));
     }
   }
-  // We only support GPUs with matrix accelerator extentions
+  // We only support GPUs with matrix accelerator extensions
 }
 
 unsigned getNumberOfIterations(TuningParamSetKind kind) {
@@ -738,7 +739,7 @@ static void createGemmTuningRangeGreedyPhase1(TuningParamSet *newSpace,
         computeDPerWave(TuningParamSetKind::Greedy, gemmMPerBlock, waveSize);
     for (uint32_t gemmNPerBlock : params[1]) {
       SmallVector<uint32_t> nPerWaveRange =
-          computeDPerWave(TuningParamSetKind::Greedy, gemmMPerBlock, waveSize);
+          computeDPerWave(TuningParamSetKind::Greedy, gemmNPerBlock, waveSize);
       uint32_t totalIterations = params[2].size() * mPerWaveRange.size() *
                                  nPerWaveRange.size() * params[3].size() *
                                  params[4].size() * params[5].size() *
@@ -852,7 +853,7 @@ TuningParamSet *createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
   WalkResult findPrimary =
       mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
         GemmFeatures currentFeatures = rock::getFeatures(op);
-        // greedy is not impleneted for non-accel
+        // greedy is not implemented for non-accel
         if (!rock::isAccel(currentFeatures) &&
             kind == TuningParamSetKind::Greedy) {
           kind = TuningParamSetKind::Exhaustive;

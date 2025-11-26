@@ -730,15 +730,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       return failure();
     }
 
-    // Sequential benchmarking phase (must be sequential for accurate timing)
-    // Note: Due to early exit on compilation failures, only NotApplicable and
-    // Success statuses are possible here.
-    struct BenchmarkResult {
-      SmallString<64> perfConfig;
-      double time;
-    };
-    std::vector<BenchmarkResult> benchmarkResults;
-
+    int64_t validResults = 0;
     for (const auto &result : compilationResults) {
       llvm::outs() << result.perfConfig << "\t";
 
@@ -761,18 +753,19 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       }
       llvm::outs() << timing.value() << "\n";
 
-      // Store result for finding best config
-      benchmarkResults.push_back({result.perfConfig, timing.value()});
-    }
-
-    // Find best config
-    if (numTuningIterations > 1) {
-      for (const auto &result : benchmarkResults) {
-        if (result.time < bestTimeOverall) {
-          bestTimeOverall = result.time;
+      validResults++;
+      // Find best config
+      if (numTuningIterations > 1) {
+        if (timing.value() < bestTimeOverall) {
+          bestTimeOverall = timing.value();
           bestConfigOverall = result.perfConfig;
         }
       }
+    }
+
+    if (validResults == 0) {
+      llvm::errs() << "No valid configurations found\n";
+      return failure();
     }
   } // End of iteration loop
 

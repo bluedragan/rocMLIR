@@ -96,7 +96,11 @@ static llvm::cl::opt<rock::TuningParamSetKind> tuningSpaceKind(
                    "Quick tuning space"),
         clEnumValN(rock::TuningParamSetKind::Full, "full",
                    "Full tuning space, excluding known-bad configurations"),
-        clEnumValN(rock::TuningParamSetKind::Greedy, "greedy", "TODO"),
+        clEnumValN(
+            rock::TuningParamSetKind::Greedy, "greedy",
+            "Tune all possible tile sizes and try N random configurations for "
+            "each tile size. Then, greedily select the best tile size, and "
+            "brute force tune the rest of params"),
         clEnumValN(rock::TuningParamSetKind::Exhaustive, "exhaustive",
                    "All tuning space combinations, even inapplicable ones")),
     llvm::cl::value_desc("tuning space to use"),

@@ -208,7 +208,8 @@ static void createAttnTuningRangeBF(TuningParamSet *newSpace,
                       if (gemm0MPerBlock >= gemmMPerWave &&
                           gemm1MPerBlock >= gemmMPerWave &&
                           gemm1MPerBlock >= gemm0MPerBlock &&
-                          gemm0NPerBlock >= gemmNPerWave) {
+                          gemm0NPerBlock >= gemmNPerWave && 
+                          gemm1MPerBlock % gemm0MPerBlock == 0) {
                         auto params = AttnPerfConfigAttr::get(
                             gemmGemmOp.getContext(), gemm0MPerBlock,
                             gemm1MPerBlock, gemm0NPerBlock, gemmKPerBlock,

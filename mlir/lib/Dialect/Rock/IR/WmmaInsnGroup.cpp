@@ -149,7 +149,7 @@ getWmmaInsnMapGfx1250() {
 // Returns true if kPerBlock * kPack is sufficient for the given inputVectorLen
 static bool isKCoherent(int64_t inputVectorLen, int64_t kPack,
                         int64_t kPackPerBlock) {
-  if (kPackPerBlock * kPack % inputVectorLen != 0) {
+  if (((kPackPerBlock * kPack) % inputVectorLen) != 0) {
     LLVM_DEBUG(llvm::dbgs()
                << "kPerBlock*kpack needs to be a multiple of inputLen: "
                << kPackPerBlock << " * " << kPack << " = "
@@ -239,8 +239,8 @@ FailureOr<WmmaInsn> WmmaInsn::select(mlir::Type elementTypeA,
     }
   }
 
-  // Use gfx12 only if we don't have gfx1250 or gfx11
-  if (!insnInfo && !isGfx1250 && !isGfx11) {
+  // Use gfx12 only if we don't have a selected instruction and not gfx11
+  if (!insnInfo && !isGfx11) {
     auto &gfx12Map = getWmmaInsnMapGfx12();
     auto it = gfx12Map.find({typeId, 16});
     if (it != gfx12Map.end()) {
@@ -252,7 +252,7 @@ FailureOr<WmmaInsn> WmmaInsn::select(mlir::Type elementTypeA,
   }
 
   // Fall back to gfx11 if we are using gfx12, or if we explicitly ask for gfx11
-  if (!insnInfo && !isGfx1250 && isGfx11) {
+  if (!insnInfo && (!isGfx1250 || isGfx11)) {
     auto &gfx11Map = getWmmaInsnMapGfx11();
     auto it = gfx11Map.find({typeId, 16});
     if (it != gfx11Map.end()) {

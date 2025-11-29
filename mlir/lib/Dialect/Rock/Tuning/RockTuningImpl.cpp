@@ -106,11 +106,11 @@ static std::vector<uint32_t> computeDPerBlock(TuningParamSetKind tuningKind) {
   if (tuningKind == TuningParamSetKind::Exhaustive) {
     dPerBlockList.push_back(16);
     // TODO: try `dPerBlock += 16`
-    for (uint32_t dPerBlock = 32; dPerBlock < 512; dPerBlock += 32) {
+    for (uint32_t dPerBlock = 32; dPerBlock <= 256; dPerBlock += 32) {
       dPerBlockList.push_back(dPerBlock);
     }
   } else {
-    for (uint32_t dPerBlock = 16; dPerBlock < 512; dPerBlock *= 2) {
+    for (uint32_t dPerBlock = 16; dPerBlock <= 256; dPerBlock *= 2) {
       dPerBlockList.push_back(dPerBlock);
     }
   }

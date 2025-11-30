@@ -27,7 +27,9 @@
 // Note this is a copy of: /include/rocblas/internal/rocblas_hip_f8_impl.h
 
 namespace benchmark {
+#if defined(__powerpc__)
 #define _Float16 __fp16
+#endif
 
 template <int wm, int we, typename T, bool negative_zero_nan, bool clip>
 uint8_t cast_to_f8(T _x, bool stoch, uint32_t rng) {
